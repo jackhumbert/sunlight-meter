@@ -1,0 +1,3 @@
+[submodule "SSD1306-AVR"]
+	path = SSD1306-AVR
+	url = https://github.com/jackhumbert/SSD1306-AVR.git
