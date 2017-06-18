@@ -45,8 +45,7 @@ const uint8_t image[] PROGMEM = {
 };
 
 
-uint16_t sunlight;
-char sunlight_string[5], second_string[5], minute_string[5], hour_string[5], average_string[5];
+uint16_t min_sunlight, max_sunlight, sunlight;
 
 Framebuffer fb;
 
@@ -56,6 +55,8 @@ uint16_t hour_data[24];
 
 uint8_t seconds, minutes, hours;
 double sunlight_sum, hour_sum, minute_sum, second_sum, average_sunlight;
+
+char sunlight_string[32], average_string[32];
 
 int main(void) {
 
@@ -75,16 +76,37 @@ int main(void) {
 	TCCR1A= 0b00000000; // turn off PWM
 	TCCR1B= 0b00001100; // set CTC on and prescalar to /256
 	TIMSK1 |= _BV(OCIE1A); // enable timer compare A interrupt
-	OCR1A = 31249; //set the comparator A to trigger at 1 second
+	//OCR1A = 31249; //set the comparator A to trigger at 1 second
+	OCR1A = (3125 * 2) - 1;
 	sei();
+
+
+	DDRD |= (1<<6);
+	PORTD &= ~(1<<6);
+
+	min_sunlight = max_sunlight = sunlight = analogRead(3);
 
     while (true) {
 	}
     return 0;
 }
 
+inline uint16_t min(uint16_t a, uint16_t b) {
+    if (a > b)
+        return b;
+    return a;
+}
+
+inline uint16_t max(uint16_t a, uint16_t b) {
+    if (a < b)
+        return b;
+    return a;
+}
+
 ISR(TIMER1_COMPA_vect) {
 	sunlight = analogRead(3);
+	min_sunlight = min(min_sunlight, sunlight);
+	max_sunlight = max(max_sunlight, sunlight);
 
 	second_data[seconds] = sunlight;
 	seconds++;
@@ -121,34 +143,33 @@ ISR(TIMER1_COMPA_vect) {
 		second_sum += second_data[i];
 	}
 	if (hours > 0) {
-		hour_sum *= (59.0 / hours / 60.0);
-		minute_sum *= (1.0/60.0);
-		second_sum *= (1.0/60.0);
+		hour_sum *= (1.0 / hours);
+		minute_sum *= (1.0 / 60.0);
+		second_sum *= (1.0 / 60.0 / 60.0);
 	}
 	if (minutes > 0) {
-		hour_sum *= (59.0/60.0);
-		minute_sum *= (59.0 / minutes / 60.0);
-		second_sum *= (1/60);
+		hour_sum *= (59.0 / 60.0);
+		minute_sum *= (1.0 / minutes);
+		if (hours == 0)
+			second_sum *= (1.0 / 60);
 	}
 	if (seconds > 0) {
+		hour_sum *= (59.0 / 60.0);
+		minute_sum *= (59.0 / 60.0);
 		second_sum *= (1.0 / seconds);
 	}
 	average_sunlight = hour_sum + minute_sum + second_sum;
 
 	fb.clear();
-    fb.drawRectangle(0, 24, sunlight/8, 31, 1);
-    fb.drawString("Current:", 0, 0);
-    itoa(sunlight, sunlight_string, 10);
-    sprintf(second_string, "%02d", seconds);
-    sprintf(minute_string, "%02d", minutes);
-    sprintf(hour_string, "%02d", hours);
-    sprintf(average_string, "%.0f", average_sunlight);
-    fb.drawString(sunlight_string, 6*9, 0);
-    fb.drawString("  :  :   since start", 0, 8);
-    fb.drawString(hour_string, 0, 8);
-    fb.drawString(minute_string, 6*3, 8);
-    fb.drawString(second_string, 6*6, 8);
-    fb.drawString("Average:", 0, 16);
-    fb.drawString(average_string, 6*9, 16);
+    fb.drawRectangle(0, 26, (1.0 * sunlight - min_sunlight) / ( 1.0 * max_sunlight - min_sunlight) * 128.0, 29, 1);
+    fb.drawVLineInverse((1.0 * average_sunlight - min_sunlight) / (1.0 * max_sunlight - min_sunlight) * 128.0, 24, 8);
+    fb.drawVLine(0, 24, 8);
+    //fb.drawHLineInverse(min_sunlight/8+1, 31, 1);
+    fb.drawVLineInverse(127, 24, 8);
+    //fb.drawHLineInverse(max_sunlight/8-1, 24, 1);
+    sprintf(sunlight_string, "Cur: %-4d    %02d:%02d:%02d", sunlight, hours, minutes, seconds);
+    sprintf(average_string, "%-4d     %-4.0f    %4d", min_sunlight, average_sunlight, max_sunlight);
+    fb.drawString(sunlight_string, 0, 0);
+    fb.drawString(average_string, 0, 12);
     fb.show();
 }
