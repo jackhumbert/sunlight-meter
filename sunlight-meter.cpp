@@ -46,7 +46,7 @@ const uint8_t image[] PROGMEM = {
 
 
 uint16_t sunlight;
-char sunlight_string[5], second_string[5], minute_string[5], hour_string[5], average_string[10];
+char sunlight_string[5], second_string[5], minute_string[5], hour_string[5], average_string[5];
 
 Framebuffer fb;
 
@@ -85,7 +85,7 @@ int main(void) {
 
 ISR(TIMER1_COMPA_vect) {
 	sunlight = analogRead(3);
-	
+
 	second_data[seconds] = sunlight;
 	seconds++;
 	if (seconds == 60) {
@@ -136,18 +136,19 @@ ISR(TIMER1_COMPA_vect) {
 	average_sunlight = hour_sum + minute_sum + second_sum;
 
 	fb.clear();
-    //fb.drawRectangle(sunlight/8-4, 0, sunlight/8, 31, 1);
-    fb.drawString("Sunlight:", 0, 0);
+    fb.drawRectangle(0, 24, sunlight/8, 31, 1);
+    fb.drawString("Current:", 0, 0);
     itoa(sunlight, sunlight_string, 10);
     sprintf(second_string, "%02d", seconds);
     sprintf(minute_string, "%02d", minutes);
     sprintf(hour_string, "%02d", hours);
-    dtostrf(average_sunlight, 5, 0, average_string);
-    fb.drawString(sunlight_string, 6*10, 0);
+    sprintf(average_string, "%.0f", average_sunlight);
+    fb.drawString(sunlight_string, 6*9, 0);
     fb.drawString("  :  :   since start", 0, 8);
     fb.drawString(hour_string, 0, 8);
     fb.drawString(minute_string, 6*3, 8);
     fb.drawString(second_string, 6*6, 8);
-    fb.drawString(average_string, 0, 16);
+    fb.drawString("Average:", 0, 16);
+    fb.drawString(average_string, 6*9, 16);
     fb.show();
 }
