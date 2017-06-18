@@ -1,6 +1,9 @@
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <avr/pgmspace.h>
+#include <avr/io.h>
+#include <avr/interrupt.h>
 #include "Framebuffer.h"
 extern "C" {
 	#include "analog.h"
@@ -41,72 +44,110 @@ const uint8_t image[] PROGMEM = {
 
 };
 
-// void adc_init()
-// {
-//     // AREF = AVcc
-//     ADMUX = (1<<REFS0) | (0<<REFS1);
- 
-//     // ADC Enable and prescaler of 128
-//     // 16000000/128 = 125000
-//     ADCSRA = (1<<ADEN)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0);
-// }
 
-// uint16_t adc_read(uint8_t ch)
-// {
-//   // select the corresponding channel 0~7
-//   // ANDing with ’7′ will always keep the value
-//   // of ‘ch’ between 0 and 7
-//   ch &= 0b00000111;  // AND operation with 7
-//   ADMUX = (ADMUX & 0xF8)|ch; // clears the bottom 3 bits before ORing
- 
-//   // start single convertion
-//   // write ’1′ to ADSC
-//   ADCSRA |= (1<<ADSC);
- 
-//   // wait for conversion to complete
-//   // ADSC becomes ’0′ again
-//   // till then, run loop continuously
-//   while(ADCSRA & (1<<ADSC));
- 
-//   return (ADC);
-// }
+uint16_t sunlight;
+char sunlight_string[5], second_string[5], minute_string[5], hour_string[5], average_string[10];
 
-// int16_t adc_read(uint8_t mux)
-// {
-//     uint8_t low;
+Framebuffer fb;
 
-//     ADCSRA = (1<<ADEN) | ADC_PRESCALER;             // enable ADC
-//     ADCSRB = (1<<ADHSM) | (mux & 0x20);             // high speed mode
-//     ADMUX = aref | (mux & 0x1F);                    // configure mux input
-//     ADCSRA = (1<<ADEN) | ADC_PRESCALER | (1<<ADSC); // start the conversion
-//     while (ADCSRA & (1<<ADSC)) ;                    // wait for result
-//     low = ADCL;                                     // must read LSB first
-//     return (ADCH << 8) | low;                       // must read MSB only once!
-// }
+uint16_t second_data[60];
+uint16_t minute_data[60];
+uint16_t hour_data[24];
 
+uint8_t seconds, minutes, hours;
+double sunlight_sum, hour_sum, minute_sum, second_sum, average_sunlight;
 
 int main(void) {
-
-	DDRD |= (1<<6);
-	PORTD |= (1<<6);
-
-    Framebuffer fb;
-    // adc_init();
 
     fb.drawBitmap(image,64,128,0,0);
     fb.show();
 
-    uint16_t x = 0;
-	char s [5];
+	DDRD |= (1<<6);
+	PORTD |= (1<<6);
+
+	sunlight = 0;
+	seconds = 0;
+	minutes = 0;
+	hours = 0;
+
+	cli();
+	TCNT1 = 0x0000; // reset counter to 0 at start
+	TCCR1A= 0b00000000; // turn off PWM
+	TCCR1B= 0b00001100; // set CTC on and prescalar to /256
+	TIMSK1 |= _BV(OCIE1A); // enable timer compare A interrupt
+	OCR1A = 31249; //set the comparator A to trigger at 1 second
+	sei();
 
     while (true) {
-    	fb.clear();
-    	x = analogRead(3);
-	    fb.drawRectangle(x/8-4, 0, x/8, 31, 1);
-	    fb.drawString("Sunlight", 0, 0);
-	    itoa(x, s, 10);
-	    fb.drawString(s, 6*9, 0);
-	    fb.show();
 	}
     return 0;
+}
+
+ISR(TIMER1_COMPA_vect) {
+	sunlight = analogRead(3);
+	
+	second_data[seconds] = sunlight;
+	seconds++;
+	if (seconds == 60) {
+		sunlight_sum = 0;
+		for (int i = 0; i < 60; i++) {
+			sunlight_sum += second_data[i];
+		}
+		minute_data[minutes] = sunlight_sum / 60.0;
+		minutes++;
+	}
+	if (minutes == 60) {
+		sunlight_sum = 0;
+		for (int i = 0; i < 60; i++) {
+			sunlight_sum += minute_data[i];
+		}
+		hour_data[hours] = sunlight_sum / 60.0;
+		hours++;
+	}
+	seconds %= 60;
+	hours %= 24;
+	minutes %= 60;
+
+	hour_sum = 0;
+	for (int i = 0; i < hours; i++) {
+		hour_sum += hour_data[i];
+	}
+	minute_sum = 0;
+	for (int i = 0; i < minutes; i++) {
+		minute_sum += minute_data[i];
+	}
+	second_sum = 0;
+	for (int i = 0; i < seconds; i++) {
+		second_sum += second_data[i];
+	}
+	if (hours > 0) {
+		hour_sum *= (59.0 / hours / 60.0);
+		minute_sum *= (1.0/60.0);
+		second_sum *= (1.0/60.0);
+	}
+	if (minutes > 0) {
+		hour_sum *= (59.0/60.0);
+		minute_sum *= (59.0 / minutes / 60.0);
+		second_sum *= (1/60);
+	}
+	if (seconds > 0) {
+		second_sum *= (1.0 / seconds);
+	}
+	average_sunlight = hour_sum + minute_sum + second_sum;
+
+	fb.clear();
+    //fb.drawRectangle(sunlight/8-4, 0, sunlight/8, 31, 1);
+    fb.drawString("Sunlight:", 0, 0);
+    itoa(sunlight, sunlight_string, 10);
+    sprintf(second_string, "%02d", seconds);
+    sprintf(minute_string, "%02d", minutes);
+    sprintf(hour_string, "%02d", hours);
+    dtostrf(average_sunlight, 5, 0, average_string);
+    fb.drawString(sunlight_string, 6*10, 0);
+    fb.drawString("  :  :   since start", 0, 8);
+    fb.drawString(hour_string, 0, 8);
+    fb.drawString(minute_string, 6*3, 8);
+    fb.drawString(second_string, 6*6, 8);
+    fb.drawString(average_string, 0, 16);
+    fb.show();
 }
